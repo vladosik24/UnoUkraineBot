@@ -1,11 +1,27 @@
 import logging
+import os
+import uvicorn
+from starlette.applications import Starlette
+from starlette.requests import Request
+from starlette.responses import PlainTextResponse, Response
+from starlette.routing import Route
 from telegram import Update, InlineQueryResultCachedSticker
 from telegram.ext import Application, InlineQueryHandler, CommandHandler
 
-# ТВІЙ ТОКЕН БОТА (@UnoGameUkraineBot) ВІД @BotFather
-BOT_TOKEN = "8420308119:AAHG9Vd3s4ycYcQvg_MxLtpWUEUWup2hA2M"
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
-# ТВІЙ ПОВНИЙ СЛОВНИК СТІКЕРІВ
+# Отримуємо токен з середовища (безпечніше)
+BOT_TOKEN = os.environ.get("8420308119:AAHG9Vd3s4ycYcQvg_MxLtpWUEUWup2hA2M")
+if not BOT_TOKEN:
+    raise ValueError("Не задано BOT_TOKEN у змінних середовища!")
+
+# Fly.io автоматично надасть ці змінні
+APP_NAME = os.environ.get("FLY_APP_NAME", "uno-ukraine-bot")
+PORT = int(os.environ.get("PORT", "8080"))
+WEBHOOK_URL = f"https://{APP_NAME}.fly.dev/webhook"
+
+# Твій повний словник стікерів (встав свій)
 SK = {
     "r0":"CAACAgIAAxkBAAIElWn3hkAZVsKDy1IPAAEbDm70D7gyhAACuqcAAvccuEtr5aj0iEW_FzsE",
     "r1":"CAACAgIAAxkBAAIEl2n3hkMenmPbZwgeafxaFq-IPhbGAAKNmAACELa4S8TYC4lnM-ogOwQ",
@@ -63,33 +79,53 @@ SK = {
     "wd4":"CAACAgIAAxkBAAIFWmn3iU1xzZuhAQhs12sHic1maq3vAAIxlwACiiPBS37YKZFL3f92OwQ",
 }
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 async def start(update: Update, context):
-    await update.message.reply_text("🃏 Привіт! Гра готова. Вводь @UnoGameUkraineBot в будь-якому чаті, щоб побачити карти.")
+    await update.message.reply_text("🃏 Привіт! Гра готова.")
 
 async def inline_query(update: Update, context):
-    # Тут буде твоя логіка отримання карт гравця (поки що тестова рука)
-    hand = ["r0", "y5", "wild", "wd4", "b2"]
+    hand = ["r0", "y5", "wild", "wd4", "b2"]  # тестова рука
     results = []
     for i, card_code in enumerate(hand):
         sticker_id = SK.get(card_code)
         if sticker_id:
-            results.append(
-                InlineQueryResultCachedSticker(
-                    id=str(i),
-                    sticker_file_id=sticker_id
-                )
-            )
+            results.append(InlineQueryResultCachedSticker(id=str(i), sticker_file_id=sticker_id))
     await update.inline_query.answer(results, cache_time=0)
 
-def main():
+async def webhook(request: Request):
+    application = request.app.state.application
+    if request.method == "POST":
+        try:
+            data = await request.json()
+            update = Update.de_json(data, application.bot)
+            await application.process_update(update)
+            return Response(status_code=200)
+        except Exception as e:
+            logger.error(f"Помилка: {e}")
+            return Response(status_code=500)
+    return PlainTextResponse("OK")
+
+async def health(request: Request):
+    return PlainTextResponse("OK")
+
+async def main():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(InlineQueryHandler(inline_query))
-    logger.info("Бот запущено!")
-    application.run_polling()
+    
+    await application.bot.set_webhook(url=WEBHOOK_URL)
+    logger.info(f"Вебхук встановлено: {WEBHOOK_URL}")
+    
+    app = Starlette(routes=[
+        Route("/webhook", webhook, methods=["POST"]),
+        Route("/health", health, methods=["GET"]),
+        Route("/", health, methods=["GET"]),
+    ])
+    app.state.application = application
+    
+    config = uvicorn.Config(app, host="0.0.0.0", port=PORT)
+    server = uvicorn.Server(config)
+    await server.serve()
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
