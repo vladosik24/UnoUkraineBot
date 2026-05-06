@@ -1,25 +1,11 @@
 import logging
-import os
-import uvicorn
-from starlette.applications import Starlette
-from starlette.requests import Request
-from starlette.responses import PlainTextResponse, Response
-from starlette.routing import Route
 from telegram import Update, InlineQueryResultCachedSticker
 from telegram.ext import Application, InlineQueryHandler, CommandHandler
 
-# Увімкнення логування
-logging.basicConfig(format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO)
-logger = logging.getLogger(__name__)
-
 # ТВІЙ ТОКЕН БОТА (@UnoGameUkraineBot) ВІД @BotFather
-TOKEN = "8420308119:AAHG9Vd3s4ycYcQvg_MxLtpWUEUWup2hA2M"
-# Render надасть цю змінну автоматично. Для локальних тестів за замовчуванням використовуємо 10000.
-PORT = int(os.environ.get("PORT", 10000))
-# Твоя URL-адреса на Render (заміни на свою після деплою)
-RENDER_EXTERNAL_URL = "https://unoukrainebot.onrender.com"
+BOT_TOKEN = "8420308119:AAHG9Vd3s4ycYcQvg_MxLtpWUEUWup2hA2M"
 
-# ТВІЙ СЛОВНИК СТІКЕРІВ (додай сюди всі свої стікери)
+# ТВІЙ ПОВНИЙ СЛОВНИК СТІКЕРІВ
 SK = {
     "r0":"CAACAgIAAxkBAAIElWn3hkAZVsKDy1IPAAEbDm70D7gyhAACuqcAAvccuEtr5aj0iEW_FzsE",
     "r1":"CAACAgIAAxkBAAIEl2n3hkMenmPbZwgeafxaFq-IPhbGAAKNmAACELa4S8TYC4lnM-ogOwQ",
@@ -77,17 +63,15 @@ SK = {
     "wd4":"CAACAgIAAxkBAAIFWmn3iU1xzZuhAQhs12sHic1maq3vAAIxlwACiiPBS37YKZFL3f92OwQ",
 }
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 async def start(update: Update, context):
-    """Відповідає на команду /start."""
-    await update.message.reply_text("🃏 Привіт! Гра готова. Використовуйте @UnoGameUkraineBot у будь-якому чаті, щоб побачити карти.")
+    await update.message.reply_text("🃏 Привіт! Гра готова. Вводь @UnoGameUkraineBot в будь-якому чаті, щоб побачити карти.")
 
 async def inline_query(update: Update, context):
-    """Обробляє вбудовані запити (коли користувач вводить @UnoGameUkraineBot)."""
-    query = update.inline_query.query
-    # Тут має бути твоя логіка, щоб дістати карти гравця
-    # Поки що показуємо тестову руку
-    hand = ["r0", "r1", "wd4"] 
-    
+    # Тут буде твоя логіка отримання карт гравця (поки що тестова рука)
+    hand = ["r0", "y5", "wild", "wd4", "b2"]
     results = []
     for i, card_code in enumerate(hand):
         sticker_id = SK.get(card_code)
@@ -100,50 +84,12 @@ async def inline_query(update: Update, context):
             )
     await update.inline_query.answer(results, cache_time=0)
 
-async def webhook(request: Request):
-    """Обробляє вхідні вебхуки від Telegram."""
-    application = request.app.state.application
-    if request.method == "POST":
-        try:
-            data = await request.json()
-            update = Update.de_json(data, application.bot)
-            await application.process_update(update)
-            return Response(status_code=200)
-        except Exception as e:
-            logger.error(f"Помилка обробки оновлення: {e}")
-            return Response(status_code=500)
-    return PlainTextResponse("OK")
-
-async def health(request: Request):
-    """Відповідає на перевірки життєздатності від Render."""
-    return PlainTextResponse("OK")
-
-async def main():
-    """Налаштовує та запускає бота."""
-    application = Application.builder().token(TOKEN).build()
+def main():
+    application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
     application.add_handler(InlineQueryHandler(inline_query))
-
-    # Налаштовуємо вебхук
-    webhook_url = f"{RENDER_EXTERNAL_URL}/webhook"
-    await application.bot.set_webhook(url=webhook_url)
-    logger.info(f"Вебхук встановлено на: {webhook_url}")
-
-    # Створюємо веб-сервер
-    starlette_app = Starlette(routes=[
-        Route("/webhook", webhook, methods=["POST"]),
-        Route("/health", health, methods=["GET"]),
-        Route("/", health, methods=["GET"]),
-    ])
-    
-    # Зберігаємо застосунок PTB у стані Starlette
-    starlette_app.state.application = application
-
-    # Налаштовуємо та запускаємо веб-сервер
-    config = uvicorn.Config(starlette_app, host="0.0.0.0", port=PORT)
-    server = uvicorn.Server(config)
-    await server.serve()
+    logger.info("Бот запущено!")
+    application.run_polling()
 
 if __name__ == "__main__":
-    import asyncio
-    asyncio.run(main())
+    main()
